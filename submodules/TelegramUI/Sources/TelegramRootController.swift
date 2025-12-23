@@ -79,7 +79,7 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
     public var contactsController: ContactsController?
     public var callListController: CallListController?
     public var chatListController: ChatListController?
-    public var accountSettingsController: PeerInfoScreen?
+    public var accountSettingsController: (PeerInfoScreen & TabBarBackgroundChangeProviding)?
     
     private var permissionsDisposable: Disposable?
     private var presentationDataDisposable: Disposable?
@@ -196,7 +196,7 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
         }
         let callListController = CallListController(context: self.context, mode: .tab)
         
-        var controllers: [ViewController] = []
+        var controllers: [ViewController & TabBarBackgroundChangeProviding] = []
         
         let contactsController = ContactsController(context: self.context)
         contactsController.switchToChatsController = {  [weak self] in
@@ -242,7 +242,7 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
         guard let rootTabController = self.rootTabController as? TabBarControllerImpl else {
             return
         }
-        var controllers: [ViewController] = []
+        var controllers: [ViewController & TabBarBackgroundChangeProviding] = []
         controllers.append(self.contactsController!)
         if showCallsTab {
             controllers.append(self.callListController!)

@@ -68,7 +68,7 @@ private final class DeleteAllButtonNode: ASDisplayNode {
     }
 }
 
-public final class CallListController: TelegramBaseController {
+public final class CallListController: TelegramBaseController, TabBarBackgroundChangeProviding {
     private var controllerNode: CallListControllerNode {
         return self.displayNode as! CallListControllerNode
     }
@@ -94,6 +94,12 @@ public final class CallListController: TelegramBaseController {
     private let createActionDisposable = MetaDisposable()
     private let clearDisposable = MetaDisposable()
     private var createConferenceCallDisposable: Disposable?
+
+    private let tabBarBackgroundChangeSourceImpl = TabBarBackgroundChangeSourceImpl()
+
+    public var tabBarBackgroundChangeSource: TabBarBackgroundChangeSource {
+        return self.tabBarBackgroundChangeSourceImpl
+    }
     
     public init(context: AccountContext, mode: CallListControllerMode) {
         self.context = context
@@ -408,6 +414,10 @@ public final class CallListController: TelegramBaseController {
                 strongSelf.callPressed()
             }
         })
+
+        self.controllerNode.tabBarBackgroundInvalidated = { [weak self] in
+            self?.tabBarBackgroundChangeSourceImpl.invalidate()
+        }
         
         if case .navigation = self.mode {
             self.controllerNode.navigationBar = self.navigationBar

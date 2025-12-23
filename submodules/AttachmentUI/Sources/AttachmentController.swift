@@ -1112,6 +1112,17 @@ public class AttachmentController: ViewController, MinimizableController {
                             self.isAnimating = false
                         })
                         sourceGlassView.isHidden = true
+                    } else {
+                        let targetPosition = self.container.position
+                        let startPosition = targetPosition.offsetBy(dx: 0.0, dy: layout.size.height)
+                        
+                        self.container.position = startPosition
+                        let transition = ContainedViewLayoutTransition.animated(duration: 0.4, curve: .spring)
+                        transition.animateView(allowUserInteraction: true, {
+                            self.container.position = targetPosition
+                        }, completion: { _ in
+                            self.isAnimating = false
+                        })
                     }
                 } else {
                     let targetPosition = self.container.position
@@ -1214,6 +1225,21 @@ public class AttachmentController: ViewController, MinimizableController {
                         scaleTransition.animateTransformScale(view: sourceGlassView, from: 1.0 / targetButtonScale)
                         
                         positionTransition.animatePosition(layer: sourceGlassView.layer, from: self.view.convert(initialFrame.center, to: sourceGlassView.superview), to: sourceGlassView.center)
+                    } else {
+                        let positionTransition: ContainedViewLayoutTransition = .animated(duration: 0.25, curve: .easeInOut)
+                        positionTransition.updatePosition(node: self.container, position: CGPoint(x: self.container.position.x, y: self.bounds.height + self.container.bounds.height / 2.0), completion: { [weak self] _ in
+                            let _ = self?.container.dismiss(transition: .immediate, completion: completion)
+                            self?.isAnimating = false
+                        })
+                        
+                        if controller.style != .glass || self.didMaximizeOnce {
+                            self.controller?.updateModalStyleOverlayTransitionFactor(0.0, transition: positionTransition)
+                        }
+                        
+                        if controller.fromMenu && self.hasButton, let (_, _, getTransition) = controller.getInputContainerNode(), let inputTransition = getTransition() {
+                            self.panel.animateTransitionOut(inputTransition: inputTransition, dismissed: true, transition: positionTransition)
+                            self.containerLayoutUpdated(layout, transition: positionTransition)
+                        }
                     }
                 } else {
                     let positionTransition: ContainedViewLayoutTransition = .animated(duration: 0.25, curve: .easeInOut)

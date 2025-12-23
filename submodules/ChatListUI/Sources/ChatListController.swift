@@ -85,7 +85,7 @@ private final class ContextControllerContentSourceImpl: ContextControllerContent
     }
 }
 
-public class ChatListControllerImpl: TelegramBaseController, ChatListController {
+public class ChatListControllerImpl: TelegramBaseController, ChatListController, TabBarBackgroundChangeProviding {
     private var validLayout: ContainerViewLayout?
     
     public let context: AccountContext
@@ -97,6 +97,12 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
     
     public let location: ChatListControllerLocation
     public let previewing: Bool
+
+    private let tabBarBackgroundChangeSourceImpl = TabBarBackgroundChangeSourceImpl()
+
+    public var tabBarBackgroundChangeSource: TabBarBackgroundChangeSource {
+        return self.tabBarBackgroundChangeSourceImpl
+    }
     
     let openMessageFromSearchDisposable: MetaDisposable = MetaDisposable()
     
@@ -951,6 +957,10 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
         self.displayNode = ChatListControllerNode(context: self.context, location: self.location, previewing: self.previewing, controlsHistoryPreload: self.controlsHistoryPreload, presentationData: self.presentationData, animationCache: self.animationCache, animationRenderer: self.animationRenderer, controller: self)
         
         self.chatListDisplayNode.navigationBar = self.navigationBar
+
+        self.chatListDisplayNode.tabBarBackgroundInvalidated = { [weak self] in
+            self?.tabBarBackgroundChangeSourceImpl.invalidate()
+        }
         
         self.chatListDisplayNode.requestDeactivateSearch = { [weak self] in
             self?.deactivateSearch(animated: true)

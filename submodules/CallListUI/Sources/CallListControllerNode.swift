@@ -196,6 +196,8 @@ final class CallListControllerNode: ASDisplayNode {
     var activateSearch: (() -> Void)?
     var deletePeerChat: ((EnginePeer.Id) -> Void)?
     var startNewCall: (() -> Void)?
+
+    var tabBarBackgroundInvalidated: (() -> Void)?
     
     private let viewProcessingQueue = Queue()
     private var callListView: CallListNodeView?
@@ -673,12 +675,44 @@ final class CallListControllerNode: ASDisplayNode {
                 }
             }
         }
+
+        self.installTabBarBackgroundChangeHooks()
     }
     
     deinit {
         self.callListDisposable.dispose()
         self.emptyStateDisposable.dispose()
         self.openGroupCallDisposable.dispose()
+    }
+
+    private func installTabBarBackgroundChangeHooks() {
+        let previousVisibleContentOffsetChanged = self.listNode.visibleContentOffsetChanged
+        self.listNode.visibleContentOffsetChanged = { [weak self] offset in
+            previousVisibleContentOffsetChanged(offset)
+            self?.notifyTabBarBackgroundChanged()
+        }
+
+        let previousOnContentsUpdated = self.listNode.onContentsUpdated
+        self.listNode.onContentsUpdated = { [weak self] transition in
+            previousOnContentsUpdated?(transition)
+            self?.notifyTabBarBackgroundChanged()
+        }
+
+        let previousBeganInteractiveDragging = self.listNode.beganInteractiveDragging
+        self.listNode.beganInteractiveDragging = { [weak self] point in
+            previousBeganInteractiveDragging(point)
+            self?.notifyTabBarBackgroundChanged()
+        }
+
+        let previousDidEndScrolling = self.listNode.didEndScrolling
+        self.listNode.didEndScrolling = { [weak self] animated in
+            previousDidEndScrolling?(animated)
+            self?.tabBarBackgroundInvalidated?()
+        }
+    }
+
+    private func notifyTabBarBackgroundChanged() {
+        self.tabBarBackgroundInvalidated?()
     }
     
     func updateThemeAndStrings(presentationData: PresentationData) {

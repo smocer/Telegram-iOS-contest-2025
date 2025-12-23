@@ -11,7 +11,7 @@ import AccountContext
 import TelegramCore
 import MultilineTextComponent
 import LegacyComponents
-import SliderComponent
+import LiquidGlassUI
 
 private func stringForCacheSize(strings: PresentationStrings, size: Int32) -> String {
     if size > 100 {
@@ -76,20 +76,25 @@ final class StorageKeepSizeComponent: Component {
     
     class View: UIView {
         private let titles: [ComponentView<Empty>]
-        private let slider: ComponentView<Empty>
-        //private var sliderView: TGPhotoEditorSliderView?
+        private let sliderView: LiquidGlassSlider<Int32>
         
         private var component: StorageKeepSizeComponent?
         private weak var state: EmptyComponentState?
         
         override init(frame: CGRect) {
             self.titles = (0 ..< 4).map { _ in ComponentView<Empty>() }
-            self.slider = ComponentView<Empty>()
+            self.sliderView = LiquidGlassSlider<Int32>(
+                metalContext: LiquidGlassSharedContext.metalContext,
+                snappingValues: maximumCacheSizeValues
+            )
             
             super.init(frame: frame)
             
             self.clipsToBounds = true
             self.layer.cornerRadius = 26.0
+
+            self.addSubview(self.sliderView)
+            self.sliderView.addTarget(self, action: #selector(self.sliderValueChanged), for: .valueChanged)
         }
         
         required init?(coder: NSCoder) {
@@ -137,35 +142,31 @@ final class StorageKeepSizeComponent: Component {
                 }
             }
             
-            let sliderSize = self.slider.update(
-                transition: transition,
-                component: AnyComponent(
-                    SliderComponent(
-                        content: .discrete(.init(
-                            valueCount: 4,
-                            value: maximumCacheSizeValues.firstIndex(where: { $0 == component.value }) ?? 0,
-                            markPositions: true,
-                            valueUpdated: { value in
-                                let sizeValue = maximumCacheSizeValues[value]
-                                component.updateValue(sizeValue)
-                            }
-                        )),
-                        useNative: true,
-                        trackBackgroundColor: component.theme.list.itemSwitchColors.frameColor,
-                        trackForegroundColor: component.theme.list.itemAccentColor
-                    )
-                ),
-                environment: {},
-                containerSize: CGSize(width: availableSize.width - 15.0 * 2.0, height: 44.0)
-            )
-            if let sliderView = self.slider.view {
-                if sliderView.superview == nil {
-                    self.addSubview(sliderView)
-                }
-                transition.setFrame(view: sliderView, frame: CGRect(origin: CGPoint(x: floorToScreenPixels((availableSize.width - sliderSize.width) / 2.0), y: 41.0), size: sliderSize))
+            if themeUpdated {
+                self.sliderView.backgroundHostColor = component.theme.list.itemBlocksBackgroundColor
+                self.sliderView.trackTintColor = component.theme.list.itemSwitchColors.frameColor
+                self.sliderView.fillTintColor = component.theme.list.itemAccentColor
+                self.sliderView.knobColor = component.theme.list.itemSwitchColors.handleColor
             }
+
+            let selectedIndex = maximumCacheSizeValues.firstIndex(where: { $0 == component.value }) ?? 0
+            self.sliderView.setSelectedIndex(selectedIndex, animated: false)
+
+            let sliderSize = CGSize(width: availableSize.width - 15.0 * 2.0, height: 44.0)
+            transition.setFrame(
+                view: self.sliderView,
+                frame: CGRect(
+                    origin: CGPoint(x: floorToScreenPixels((availableSize.width - sliderSize.width) / 2.0), y: 41.0),
+                    size: sliderSize
+                )
+            )
                         
             return CGSize(width: availableSize.width, height: height)
+        }
+
+        @objc private func sliderValueChanged() {
+            guard let component = self.component else { return }
+            component.updateValue(self.sliderView.selectedValue)
         }
     }
     

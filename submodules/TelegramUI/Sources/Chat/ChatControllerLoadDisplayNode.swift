@@ -5170,6 +5170,8 @@ extension ChatControllerImpl {
             }
 
             //print("didScrollWithOffset offset: \(offset), itemNode: \(String(describing: itemNode))")
+
+            strongSelf.chatDisplayNode.textInputPanelNode?.invalidateLiquidGlassBackgroundCapture()
             
             if offset > 0.0 {
                 if var scrolledToMessageIdValue = strongSelf.contentData?.scrolledToMessageIdValue {

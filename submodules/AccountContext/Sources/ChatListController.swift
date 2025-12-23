@@ -9,7 +9,7 @@ public enum ChatListControllerLocation: Equatable {
     case savedMessagesChats(peerId: EnginePeer.Id)
 }
 
-public protocol ChatListController: ViewController {
+public protocol ChatListController: ViewController, TabBarBackgroundChangeProviding {
     var context: AccountContext { get }
     var location: ChatListControllerLocation { get }
     var lockViewFrame: CGRect? { get }

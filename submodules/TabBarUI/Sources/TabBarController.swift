@@ -60,6 +60,7 @@ open class TabBarControllerImpl: ViewController, TabBarController {
     }
     
     public private(set) var controllers: [ViewController] = []
+    private var backgroundChangeControllers: [ViewController & TabBarBackgroundChangeProviding] = []
     
     private let _ready = Promise<Bool>()
     override open var ready: Promise<Bool> {
@@ -278,31 +279,34 @@ open class TabBarControllerImpl: ViewController, TabBarController {
             self.currentController = nil
         }
         
-        if let _selectedIndex = self._selectedIndex, _selectedIndex < self.controllers.count {
-            self.currentController = self.controllers[_selectedIndex]
+        var selectedController: (ViewController & TabBarBackgroundChangeProviding)?
+        if let _selectedIndex = self._selectedIndex, _selectedIndex < self.backgroundChangeControllers.count {
+            let controller = self.backgroundChangeControllers[_selectedIndex]
+            self.currentController = controller
+            selectedController = controller
         }
 
-        if let currentController = self.currentController {
-            currentController.willMove(toParent: self)
-            self.addChild(currentController)
+        if let selectedController {
+            selectedController.willMove(toParent: self)
+            self.addChild(selectedController)
             
-            let commit = self.tabBarControllerNode.setCurrentControllerNode(currentController.displayNode)
+            let commit = self.tabBarControllerNode.setCurrentControllerNode(selectedController.displayNode, backgroundChangeSource: selectedController.tabBarBackgroundChangeSource)
             if animated {
-                currentController.view.layer.animateScale(from: transitionScale, to: 1.0, duration: 0.15, delay: 0.1, timingFunction: kCAMediaTimingFunctionSpring)
-                currentController.view.layer.allowsGroupOpacity = true
-                currentController.view.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.1, completion: { completed in
+                selectedController.view.layer.animateScale(from: transitionScale, to: 1.0, duration: 0.15, delay: 0.1, timingFunction: kCAMediaTimingFunctionSpring)
+                selectedController.view.layer.allowsGroupOpacity = true
+                selectedController.view.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.1, completion: { completed in
                     if completed {
-                        currentController.view.layer.allowsGroupOpacity = false
+                        selectedController.view.layer.allowsGroupOpacity = false
                     }
                     commit()
                 })
             } else {
                 commit()
             }
-            currentController.didMove(toParent: self)
+            selectedController.didMove(toParent: self)
 
-            currentController.displayNode.recursivelyEnsureDisplaySynchronously(true)
-            self.statusBar.statusBarStyle = currentController.statusBar.statusBarStyle
+            selectedController.displayNode.recursivelyEnsureDisplaySynchronously(true)
+            self.statusBar.statusBarStyle = selectedController.statusBar.statusBarStyle
         }
         
         if let layout = self.validLayout {
@@ -395,7 +399,7 @@ open class TabBarControllerImpl: ViewController, TabBarController {
         }
     }
         
-    public func setControllers(_ controllers: [ViewController], selectedIndex: Int?) {
+    public func setControllers(_ controllers: [ViewController & TabBarBackgroundChangeProviding], selectedIndex: Int?) {
         var updatedSelectedIndex: Int? = selectedIndex
         if updatedSelectedIndex == nil, let selectedIndex = self._selectedIndex, selectedIndex < self.controllers.count {
             if let index = controllers.firstIndex(where: { $0 === self.controllers[selectedIndex] }) {
@@ -404,7 +408,8 @@ open class TabBarControllerImpl: ViewController, TabBarController {
                 updatedSelectedIndex = 0
             }
         }
-        self.controllers = controllers
+        self.backgroundChangeControllers = controllers
+        self.controllers = controllers.map { $0 as ViewController }
         
         let tabBarItems = self.controllers.map({ TabBarNodeItem(item: $0.tabBarItem, contextActionType: $0.tabBarItemContextActionType) })
         

@@ -6,9 +6,9 @@ import SwiftSignalKit
 import TelegramCore
 import TelegramUIPreferences
 import TelegramPresentationData
-import LegacyComponents
 import ItemListUI
 import PresentationDataUtils
+import LiquidGlassUI
 
 private func totalDiskSpace() -> Int64 {
     do {
@@ -96,7 +96,7 @@ private final class MaximumCacheSizePickerItemNode: ListViewItemNode {
     private let maskNode: ASImageNode
     
     private let textNodes: [TextNode]
-    private var sliderView: TGPhotoEditorSliderView?
+    private var sliderView: LiquidGlassSlider<Int32>?
     
     private var item: MaximumCacheSizePickerItem?
     private var layoutParams: ListViewItemLayoutParams?
@@ -131,40 +131,25 @@ private final class MaximumCacheSizePickerItemNode: ListViewItemNode {
     
     func updateSliderView() {
         if let sliderView = self.sliderView, let item = self.item {
-            sliderView.maximumValue = 3.0
-            sliderView.positionsCount = 4
-            
             let value = maximumCacheSizeValues.firstIndex(where: { $0 == item.value }) ?? 0
-            sliderView.value = CGFloat(value)
+            sliderView.setSelectedIndex(value, animated: false)
         }
     }
     
     override func didLoad() {
         super.didLoad()
         
-        let sliderView = TGPhotoEditorSliderView()
-        sliderView.enablePanHandling = true
-        sliderView.trackCornerRadius = 2.0
-        sliderView.lineSize = 4.0
-        sliderView.dotSize = 5.0
-        sliderView.minimumValue = 0.0
-        sliderView.maximumValue = 3.0
-        sliderView.startValue = 0.0
-        sliderView.disablesInteractiveTransitionGestureRecognizer = true
-        sliderView.positionsCount = 4
-        sliderView.useLinesForPositions = true
+        let sliderView = LiquidGlassSlider<Int32>(metalContext: LiquidGlassSharedContext.metalContext, snappingValues: maximumCacheSizeValues)
         if let item = self.item, let params = self.layoutParams {
             let value = maximumCacheSizeValues.firstIndex(where: { $0 == item.value }) ?? 0
-          
-            sliderView.value = CGFloat(value)
-            sliderView.backgroundColor = item.theme.list.itemBlocksBackgroundColor
-            sliderView.backColor = item.theme.list.itemSwitchColors.frameColor
-            sliderView.startColor = item.theme.list.itemSwitchColors.frameColor
-            sliderView.trackColor = item.theme.list.itemAccentColor
-            sliderView.knobImage = PresentationResourcesItemList.knobImage(item.theme)
+            sliderView.setSelectedIndex(value, animated: false)
             
             sliderView.frame = CGRect(origin: CGPoint(x: params.leftInset + 15.0, y: 37.0), size: CGSize(width: params.width - params.leftInset - params.rightInset - 15.0 * 2.0, height: 44.0))
-            sliderView.hitTestEdgeInsets = UIEdgeInsets(top: -sliderView.frame.minX, left: 0.0, bottom: 0.0, right: -sliderView.frame.minX)
+            
+            sliderView.backgroundHostColor = item.theme.list.itemBlocksBackgroundColor
+            sliderView.trackTintColor = item.theme.list.itemSwitchColors.frameColor
+            sliderView.fillTintColor = item.theme.list.itemAccentColor
+            sliderView.knobColor = item.theme.list.itemSwitchColors.handleColor
         }
         self.view.addSubview(sliderView)
         sliderView.addTarget(self, action: #selector(self.sliderValueChanged), for: .valueChanged)
@@ -284,15 +269,13 @@ private final class MaximumCacheSizePickerItemNode: ListViewItemNode {
                     
                     if let sliderView = strongSelf.sliderView {
                         if themeUpdated {
-                            sliderView.backgroundColor = item.theme.list.itemBlocksBackgroundColor
-                            sliderView.backColor = item.theme.list.itemSwitchColors.frameColor
-                            sliderView.startColor = item.theme.list.itemSwitchColors.frameColor
-                            sliderView.trackColor = item.theme.list.itemAccentColor
-                            sliderView.knobImage = PresentationResourcesItemList.knobImage(item.theme)
+                            sliderView.backgroundHostColor = item.theme.list.itemBlocksBackgroundColor
+                            sliderView.trackTintColor = item.theme.list.itemSwitchColors.frameColor
+                            sliderView.fillTintColor = item.theme.list.itemAccentColor
+                            sliderView.knobColor = item.theme.list.itemSwitchColors.handleColor
                         }
                         
                         sliderView.frame = CGRect(origin: CGPoint(x: params.leftInset + 15.0, y: 37.0), size: CGSize(width: params.width - params.leftInset - params.rightInset - 15.0 * 2.0, height: 44.0))
-                        sliderView.hitTestEdgeInsets = UIEdgeInsets(top: -sliderView.frame.minX, left: 0.0, bottom: 0.0, right: -sliderView.frame.minX)
                         
                         strongSelf.updateSliderView()
                     }
@@ -313,10 +296,6 @@ private final class MaximumCacheSizePickerItemNode: ListViewItemNode {
         guard let sliderView = self.sliderView else {
             return
         }
-        
-        let position = Int(sliderView.value)
-        let value = maximumCacheSizeValues[position]
-        self.item?.updated(value)
+        self.item?.updated(sliderView.selectedValue)
     }
 }
-

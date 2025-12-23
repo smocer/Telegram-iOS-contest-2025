@@ -40,6 +40,7 @@ swift_library(
         "//submodules/LegacyComponents:LegacyComponents",
         "//submodules/LegacyUI:LegacyUI",
         "//submodules/LegacyMediaPickerUI:LegacyMediaPickerUI",
+        "//submodules/LiquidGlassUI",
         "//submodules/ListSectionHeaderNode:ListSectionHeaderNode",
         "//submodules/LocalMediaResources:LocalMediaResources",
         "//submodules/LocalizedPeerData:LocalizedPeerData",
