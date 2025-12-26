@@ -3020,6 +3020,8 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
     
     let scrollNode: ASScrollNode
     private let edgeEffectView: EdgeEffectView
+
+    var tabBarBackgroundInvalidated: (() -> Void)?
     
     let headerNode: PeerInfoHeaderNode
     private var regularSections: [AnyHashable: PeerInfoScreenItemSectionContainerNode] = [:]
@@ -12912,6 +12914,7 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
                 
         self.ignoreScrolling = false
         self.updateNavigation(transition: transition, additive: additive, animateHeader: self.controller?.didAppear ?? false)
+        self.tabBarBackgroundInvalidated?()
         
         if !self.didSetReady && self.data != nil {
             self.didSetReady = true
@@ -13101,6 +13104,8 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
         guard !self.ignoreScrolling else {
             return
         }
+
+        self.notifyTabBarBackgroundChanged(scrollView: scrollView)
                         
         if !self.state.isEditing {
             if self.canAddVelocity {
@@ -13164,11 +13169,17 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
         guard let (_, navigationHeight) = self.validLayout else {
             return
         }
+
+        self.notifyTabBarBackgroundChanged(scrollView: scrollView)
         
         let paneAreaExpansionFinalPoint: CGFloat = self.paneContainerNode.frame.minY - navigationHeight
         if abs(scrollView.contentOffset.y - paneAreaExpansionFinalPoint) < .ulpOfOne {
             self.paneContainerNode.currentPane?.node.transferVelocity(self.previousVelocityM1)
         }
+    }
+
+    private func notifyTabBarBackgroundChanged(scrollView: UIScrollView) {
+        self.tabBarBackgroundInvalidated?()
     }
     
     fileprivate func resetHeaderExpansion() {
@@ -13452,7 +13463,7 @@ public enum PeerInfoSwitchToGiftsTarget {
     case collection(Int64)
 }
 
-public final class PeerInfoScreenImpl: ViewController, PeerInfoScreen, KeyShortcutResponder {
+public final class PeerInfoScreenImpl: ViewController, PeerInfoScreen, KeyShortcutResponder, TabBarBackgroundChangeProviding {
     let context: AccountContext
     fileprivate let updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>)?
     public let peerId: PeerId
@@ -13489,6 +13500,12 @@ public final class PeerInfoScreenImpl: ViewController, PeerInfoScreen, KeyShortc
     private let activeSessionsContextAndCount = Promise<(ActiveSessionsContext, Int, WebSessionsContext)?>(nil)
 
     private var tabBarItemDisposable: Disposable?
+
+    private let tabBarBackgroundChangeSourceImpl = TabBarBackgroundChangeSourceImpl()
+
+    public var tabBarBackgroundChangeSource: TabBarBackgroundChangeSource {
+        return self.tabBarBackgroundChangeSourceImpl
+    }
 
     var controllerNode: PeerInfoScreenNode {
         return self.displayNode as! PeerInfoScreenNode
@@ -13948,6 +13965,11 @@ public final class PeerInfoScreenImpl: ViewController, PeerInfoScreen, KeyShortc
             initialPaneKey = .stories
         }
         self.displayNode = PeerInfoScreenNode(controller: self, context: self.context, peerId: self.peerId, avatarInitiallyExpanded: self.avatarInitiallyExpanded, isOpenedFromChat: self.isOpenedFromChat, nearbyPeerDistance: self.nearbyPeerDistance, reactionSourceMessageId: self.reactionSourceMessageId, callMessages: self.callMessages, isSettings: self.isSettings, isMyProfile: self.isMyProfile, hintGroupInCommon: self.hintGroupInCommon, requestsContext: self.requestsContext, profileGiftsContext: self.profileGiftsContext, starsContext: self.starsContext, tonContext: self.tonContext, chatLocation: self.chatLocation, chatLocationContextHolder: self.chatLocationContextHolder, switchToGiftsTarget: self.switchToGiftsTarget, switchToStoryFolder: self.switchToStoryFolder, initialPaneKey: initialPaneKey, sharedMediaFromForumTopic: self.sharedMediaFromForumTopic)
+
+        self.controllerNode.tabBarBackgroundInvalidated = { [weak self] in
+            self?.tabBarBackgroundChangeSourceImpl.invalidate()
+        }
+
         self.controllerNode.accountsAndPeers.set(self.accountsAndPeers.get() |> map { $0.1 })
         self.controllerNode.activeSessionsContextAndCount.set(self.activeSessionsContextAndCount.get())
         self.cachedDataPromise.set(self.controllerNode.cachedDataPromise.get())

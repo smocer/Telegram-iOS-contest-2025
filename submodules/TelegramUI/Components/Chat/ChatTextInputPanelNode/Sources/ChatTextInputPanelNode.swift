@@ -58,6 +58,7 @@ import ChatRecordingViewOnceButtonNode
 import ChatRecordingPreviewInputPanelNode
 import ChatInputContextPanelNode
 import RasterizedCompositionComponent
+import LiquidGlassUI
 
 private let counterFont = Font.with(size: 14.0, design: .regular, traits: [.monospacedNumbers])
 
@@ -225,6 +226,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
     public let textPlaceholderNode: ImmediateTextNodeWithEntities
     
     private let glassBackgroundContainer: GlassBackgroundContainerView
+    private let liquidChrome: LiquidChatTextInputPanelChromeView
     
     public var textLockIconNode: ASImageNode?
     public var contextPlaceholderNode: TextNode?
@@ -365,11 +367,20 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
         didSet {
             self.sendActionButtons.micButton.statusBarHost = self.context?.sharedContext.mainWindow?.statusBarHost
             self.mediaActionButtons.micButton.statusBarHost = self.context?.sharedContext.mainWindow?.statusBarHost
+            self.liquidChrome.mediaRecordingButton.statusBarHost = self.context?.sharedContext.mainWindow?.statusBarHost
         }
     }
 
     public var micButton: ChatTextInputMediaRecordingButton? {
         return self.mediaActionButtons.micButton
+    }
+
+    public func setLiquidGlassBackgroundCaptureView(_ view: UIView?) {
+        self.liquidChrome.setBackgroundCaptureView(view)
+    }
+
+    public func invalidateLiquidGlassBackgroundCapture() {
+        self.liquidChrome.invalidateBackgroundCapture()
     }
     
     private let statusDisposable = MetaDisposable()
@@ -613,6 +624,18 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
     
     private var tooltipController: TooltipScreen?
     
+    private func applyChromeGesturePolicy(_ policy: ChatTextInputPanelChromeGesturePolicy) {
+        for view in policy.interactiveTransitionEdgeOnlyViews {
+            view.disablesInteractiveTransitionGestureRecognizer = true
+        }
+        for view in policy.interactiveTransitionDisabledViews {
+            view.disablesInteractiveTransitionGestureRecognizerNow = { true }
+        }
+        for view in policy.interactiveKeyboardDisabledViews {
+            view.disablesInteractiveKeyboardGestureRecognizer = true
+        }
+    }
+    
     public init(context: AccountContext, presentationInterfaceState: ChatPresentationInterfaceState, presentationContext: ChatPresentationContext?, presentController: @escaping (ViewController) -> Void) {
         self.presentationInterfaceState = presentationInterfaceState
         self.presentationContext = presentationContext
@@ -628,10 +651,11 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
         self.inputMenu = TextInputMenu(hasSpoilers: hasSpoilers, hasQuotes: hasQuotes)
         
         self.glassBackgroundContainer = GlassBackgroundContainerView()
+        self.liquidChrome = LiquidChatTextInputPanelChromeView(metalContext: LiquidGlassSharedContext.metalContext)
         
         self.textInputContainerBackgroundView = GlassBackgroundView(frame: CGRect())
         
-        self.accessoryPanelContainer = UIView()
+        self.accessoryPanelContainer = PassthroughHitTestView()
         self.accessoryPanelContainer.clipsToBounds = true
         
         self.textInputNodeClippingContainer = ASDisplayNode()
@@ -894,6 +918,17 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
                 interfaceInteraction.switchMediaRecordingMode()
             }
         }
+
+        self.liquidChrome.mediaRecordingButton.recordingDisabled = self.mediaActionButtons.micButton.recordingDisabled
+        self.liquidChrome.mediaRecordingButton.beginRecording = self.mediaActionButtons.micButton.beginRecording
+        self.liquidChrome.mediaRecordingButton.endRecording = self.mediaActionButtons.micButton.endRecording
+        self.liquidChrome.mediaRecordingButton.stopRecording = self.mediaActionButtons.micButton.stopRecording
+        self.liquidChrome.mediaRecordingButton.offsetRecordingControls = self.mediaActionButtons.micButton.offsetRecordingControls
+        self.liquidChrome.mediaRecordingButton.switchMode = self.mediaActionButtons.micButton.switchMode
+        self.liquidChrome.mediaRecordingButton.updateLocked = self.mediaActionButtons.micButton.updateLocked
+        self.liquidChrome.mediaRecordingButton.updateCancelTranslation = self.mediaActionButtons.micButton.updateCancelTranslation
+        self.liquidChrome.mediaRecordingButton.audioRecorder = self.mediaActionButtons.micButton.audioRecorder
+        self.liquidChrome.mediaRecordingButton.videoRecordingStatus = self.mediaActionButtons.micButton.videoRecordingStatus
         
         self.sendActionButtons.sendButton.addTarget(self, action: #selector(self.sendButtonPressed), forControlEvents: .touchUpInside)
         self.sendActionButtons.sendContainerNode.alpha = 0.0
@@ -920,11 +955,15 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
         self.searchLayoutClearButtonIcon.alpha = 0.0
         
         self.glassBackgroundContainer.contentView.addSubview(self.textInputBackgroundNode.view)
+        self.glassBackgroundContainer.contentView.addSubview(self.liquidChrome.view)
+        self.applyChromeGesturePolicy(self.liquidChrome.gesturePolicy)
         self.glassBackgroundContainer.contentView.addSubview(self.textInputContainerBackgroundView)
+        self.textInputContainerBackgroundView.isHidden = true
+        self.textInputContainerBackgroundView.isUserInteractionEnabled = false
         
-        self.textInputContainerBackgroundView.contentView.addSubview(self.accessoryPanelContainer)
-        self.textInputContainerBackgroundView.contentView.addSubview(self.textPlaceholderNode.view)
-        self.textInputContainerBackgroundView.contentView.addSubview(self.textInputNodeClippingContainer.view)
+        self.liquidChrome.accessoryPanelHostView.addSubview(self.accessoryPanelContainer)
+        self.liquidChrome.messageContainer.view.addSubview(self.textPlaceholderNode.view)
+        self.liquidChrome.textInputHostView.addSubview(self.textInputNodeClippingContainer.view)
         
         self.menuButton.view.addSubview(self.menuButtonBackgroundView)
         self.menuButton.addSubnode(self.menuButtonClippingNode)
@@ -935,23 +974,33 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
         self.sendAsAvatarReferenceNode.addSubnode(self.sendAsAvatarNode)
         self.sendAsAvatarReferenceNode.view.addSubview(self.sendAsCloseIconView)
         self.sendAsAvatarButtonNode.addSubnode(self.sendAsAvatarContainerNode)
-        self.textInputContainerBackgroundView.contentView.addSubview(self.sendAsAvatarButtonNode.view)
+        self.liquidChrome.messageContainer.view.addSubview(self.sendAsAvatarButtonNode.view)
         
         self.glassBackgroundContainer.contentView.addSubview(self.menuButton.view)
         self.glassBackgroundContainer.contentView.addSubview(self.attachmentButtonBackground)
         self.glassBackgroundContainer.contentView.addSubview(self.attachmentButtonDisabledNode.view)
+        self.attachmentButtonBackground.isHidden = true
+        self.attachmentButtonBackground.isUserInteractionEnabled = false
+        self.attachmentButtonDisabledNode.alpha = 0.0
+        self.attachmentButtonDisabledNode.isUserInteractionEnabled = false
         
         self.glassBackgroundContainer.contentView.addSubview(self.startButton.view)
           
         self.glassBackgroundContainer.contentView.addSubview(self.sendActionButtons.view)
         self.glassBackgroundContainer.contentView.addSubview(self.mediaActionButtons.view)
-        self.textInputContainerBackgroundView.contentView.addSubview(self.counterTextNode.view)
+        self.liquidChrome.messageContainer.view.addSubview(self.counterTextNode.view)
+        self.mediaActionButtons.micButtonBackgroundView.isHidden = true
+        self.mediaActionButtons.micButton.isHidden = true
+        self.mediaActionButtons.micButtonTintMaskView.isHidden = true
         
         self.glassBackgroundContainer.contentView.addSubview(self.slowModeButton.view)
         
-        self.textInputContainerBackgroundView.contentView.addSubview(self.searchLayoutClearButton)
-        self.textInputContainerBackgroundView.contentView.addSubview(self.searchLayoutClearButtonIcon)
-        self.textInputContainerBackgroundView.maskContentView.addSubview(self.searchLayoutClearButtonIcon.tintMask)
+        self.liquidChrome.messageContainer.view.addSubview(self.searchLayoutClearButton)
+        self.liquidChrome.messageContainer.view.addSubview(self.searchLayoutClearButtonIcon)
+
+        self.liquidChrome.attachmentButton.onPressed = { [weak self] in
+            self?.attachmentButtonPressed()
+        }
         
         self.textInputBackgroundNode.clipsToBounds = true
         let recognizer = TouchDownGestureRecognizer(target: self, action: #selector(self.textInputBackgroundViewTap(_:)))
@@ -985,8 +1034,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
             }
         }
         self.textInputBackgroundTapRecognizer = recognizer
-        self.textInputBackgroundNode.isUserInteractionEnabled = true
-        self.textInputBackgroundNode.view.addGestureRecognizer(recognizer)
+        self.liquidChrome.focusTapView.addGestureRecognizer(recognizer)
         
         if let presentationContext = presentationContext {
             self.emojiViewProvider = { [weak self, weak presentationContext] emoji in
@@ -1066,7 +1114,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
         
         if let textInputBackgroundTapRecognizer = self.textInputBackgroundTapRecognizer {
             self.textInputBackgroundTapRecognizer = nil
-            self.textInputBackgroundNode.view.removeGestureRecognizer(textInputBackgroundTapRecognizer)
+            self.liquidChrome.focusTapView.removeGestureRecognizer(textInputBackgroundTapRecognizer)
         }
         
         var accessoryButtonsWidth: CGFloat = 0.0
@@ -1252,12 +1300,12 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
         if let customLeftAction = self.customLeftAction, case let .toggleExpanded(isVisible, _, _) = customLeftAction, !isVisible {
         } else if let customLeftAction = self.customLeftAction, case .empty = customLeftAction {
         } else {
-            insets.left += 40.0 + 6.0
+            insets.left += 40.0 + 10.0
         }
         if let customSecondaryLeftAction = self.customSecondaryLeftAction {
             if case let .settings(isVisible, _) = customSecondaryLeftAction, !isVisible {
             } else {
-                insets.left += 40.0 + 6.0
+                insets.left += 40.0 + 10.0
             }
         }
         return insets
@@ -2254,6 +2302,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
         }
         
         self.mediaActionButtons.micButton.updateMode(mode: interfaceState.interfaceState.mediaRecordingMode, animated: transition.isAnimated)
+        self.liquidChrome.mediaRecordingButton.updateMode(mode: interfaceState.interfaceState.mediaRecordingMode, animated: transition.isAnimated)
         
         self.updateActionButtons(hasText: inputHasText, transition: transition)
         
@@ -2502,7 +2551,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
                     self.tooltipController?.dismiss()
                 })
                 self.audioRecordingCancelIndicator = audioRecordingCancelIndicator
-                self.textInputContainerBackgroundView.contentView.addSubview(audioRecordingCancelIndicator)
+                self.liquidChrome.messageContainer.view.addSubview(audioRecordingCancelIndicator)
             }
             
             let isLocked = mediaRecordingState.isLocked
@@ -2513,26 +2562,32 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
                 let hadAudioRecorder = self.mediaActionButtons.micButton.audioRecorder != nil
                 if !hadAudioRecorder, isLocked {
                     self.mediaActionButtons.micButton.lock()
+                    self.liquidChrome.mediaRecordingButton.lock()
                 }
                 self.mediaActionButtons.micButton.audioRecorder = recorder
+                self.liquidChrome.mediaRecordingButton.audioRecorder = recorder
                 audioRecordingTimeNode.audioRecorder = recorder
             case let .video(status, _):
                 let hadVideoRecorder = self.mediaActionButtons.micButton.videoRecordingStatus != nil
                 if !hadVideoRecorder, isLocked {
                     self.mediaActionButtons.micButton.lock()
+                    self.liquidChrome.mediaRecordingButton.lock()
                 }
                 switch status {
                 case let .recording(recordingStatus):
                     audioRecordingTimeNode.videoRecordingStatus = recordingStatus
                     self.mediaActionButtons.micButton.videoRecordingStatus = recordingStatus
+                    self.liquidChrome.mediaRecordingButton.videoRecordingStatus = recordingStatus
                 case .editing:
                     audioRecordingTimeNode.videoRecordingStatus = nil
                     self.mediaActionButtons.micButton.videoRecordingStatus = nil
+                    self.liquidChrome.mediaRecordingButton.videoRecordingStatus = nil
                     hideInfo = true
                 }
             case .waitingForPreview:
                 Queue.mainQueue().after(0.5, {
                     self.mediaActionButtons.micButton.audioRecorder = nil
+                    self.liquidChrome.mediaRecordingButton.audioRecorder = nil
                 })
             }
             
@@ -2543,7 +2598,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
             
             let cancelTransformThreshold: CGFloat = 8.0
             
-            let indicatorTranslation = max(0.0, self.mediaActionButtons.micButton.cancelTranslation - cancelTransformThreshold)
+            let indicatorTranslation = max(0.0, self.liquidChrome.mediaRecordingButton.cancelTranslation - cancelTransformThreshold)
             
             let audioRecordingCancelIndicatorFrame = CGRect(
                 origin: CGPoint(
@@ -2551,7 +2606,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
                     y: (accessoryPanel != nil ? 52.0 : 0.0) + panelHeight - minimalHeight + floor((minimalHeight - audioRecordingCancelIndicator.bounds.size.height) / 2.0)),
                 size: audioRecordingCancelIndicator.bounds.size)
             audioRecordingCancelIndicator.frame = audioRecordingCancelIndicatorFrame
-            if self.mediaActionButtons.micButton.cancelTranslation > cancelTransformThreshold {
+            if self.liquidChrome.mediaRecordingButton.cancelTranslation > cancelTransformThreshold {
                 let progress: CGFloat = max(0.0, min(1.0, (audioRecordingCancelIndicatorFrame.minX - 100.0) / 10.0))
                 audioRecordingCancelIndicator.alpha = progress
             } else {
@@ -2565,7 +2620,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
             
             audioRecordingCancelIndicator.updateIsDisplayingCancel(isLocked, animated: !animateCancelSlideIn)
             
-            if isLocked || self.mediaActionButtons.micButton.cancelTranslation > cancelTransformThreshold {
+            if isLocked || self.liquidChrome.mediaRecordingButton.cancelTranslation > cancelTransformThreshold {
                 var deltaOffset: CGFloat = 0.0
                 if audioRecordingCancelIndicator.layer.animation(forKey: "slide_juggle") != nil, let presentationLayer = audioRecordingCancelIndicator.layer.presentation() {
                     let translation = CGPoint(x: presentationLayer.transform.m41, y: presentationLayer.transform.m42)
@@ -2657,6 +2712,8 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
         } else if self.audioRecordingInfoContainerNode != nil {
             self.mediaActionButtons.micButton.audioRecorder = nil
             self.mediaActionButtons.micButton.videoRecordingStatus = nil
+            self.liquidChrome.mediaRecordingButton.audioRecorder = nil
+            self.liquidChrome.mediaRecordingButton.videoRecordingStatus = nil
             transition.updateAlpha(layer: self.textInputBackgroundNode.layer, alpha: 1.0)
             
             if let audioRecordingInfoContainerNode = self.audioRecordingInfoContainerNode {
@@ -2848,7 +2905,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
                 mediaPreviewPanelNode.alpha = 0.0
                 mediaPreviewPanelNode.frame = mediaPreviewPanelFrame
                 
-                self.textInputContainerBackgroundView.contentView.addSubview(mediaPreviewPanelNode.view)
+                self.liquidChrome.messageContainer.view.addSubview(mediaPreviewPanelNode.view)
                 mediaPreviewPanelNode.tintMaskView.alpha = 0.0
                 mediaPreviewPanelNode.tintMaskView.frame = mediaPreviewPanelFrame
                 self.textInputContainerBackgroundView.maskContentView.addSubview(mediaPreviewPanelNode.tintMaskView)
@@ -2917,8 +2974,9 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
         
         let textFieldFrame = CGRect(origin: CGPoint(x: actualTextInputViewInternalInsets.left, y: actualTextInputViewInternalInsets.top + textFieldTopContentOffset), size: CGSize(width: textInputFrame.size.width - (actualTextInputViewInternalInsets.left + actualTextInputViewInternalInsets.right), height: textInputHeight - actualTextInputViewInternalInsets.top - actualTextInputViewInternalInsets.bottom))
         let textInputNodeClippingContainerFrame = CGRect(origin: CGPoint(x: textFieldFrame.minX - actualTextInputViewInternalInsets.left, y: textFieldFrame.minY - actualTextInputViewInternalInsets.top), size: CGSize(width: textFieldFrame.width + actualTextInputViewInternalInsets.left + actualTextInputViewInternalInsets.right,  height: textFieldFrame.height + actualTextInputViewInternalInsets.top + actualTextInputViewInternalInsets.bottom))
+        let liquidTextInputHostFrame = textInputNodeClippingContainerFrame.offsetBy(dx: textInputContainerBackgroundFrame.minX, dy: textInputContainerBackgroundFrame.minY)
         let shouldUpdateLayout = textInputNodeClippingContainerFrame.size != self.textInputNodeClippingContainer.frame.size
-        transition.updateFrame(node: self.textInputNodeClippingContainer, frame: textInputNodeClippingContainerFrame)
+        transition.updateFrame(node: self.textInputNodeClippingContainer, frame: CGRect(origin: .zero, size: textInputNodeClippingContainerFrame.size))
         
         transition.updateFrame(view: self.textInputSeparator, frame: CGRect(origin: CGPoint(x: 15.0, y: textFieldTopContentOffset - UIScreenPixel), size: CGSize(width: textFieldFrame.width, height: UIScreenPixel)))
         self.textInputSeparator.backgroundColor = interfaceState.theme.chat.inputPanel.inputPlaceholderColor
@@ -2954,7 +3012,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
                 contextPlaceholderNode.displaysAsynchronously = false
                 contextPlaceholderNode.isUserInteractionEnabled = false
                 self.contextPlaceholderNode = contextPlaceholderNode
-                self.textInputContainerBackgroundView.contentView.insertSubview(contextPlaceholderNode.view, aboveSubview: self.textPlaceholderNode.view)
+                self.liquidChrome.messageContainer.view.insertSubview(contextPlaceholderNode.view, aboveSubview: self.textPlaceholderNode.view)
             }
             
             let _ = placeholderApply()
@@ -2983,7 +3041,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
             } else {
                 slowmodePlaceholderNode = ChatTextInputSlowmodePlaceholderNode(theme: interfaceState.theme)
                 self.slowmodePlaceholderNode = slowmodePlaceholderNode
-                self.textInputContainerBackgroundView.contentView.insertSubview(slowmodePlaceholderNode.view, aboveSubview: self.textPlaceholderNode.view)
+                self.liquidChrome.messageContainer.view.insertSubview(slowmodePlaceholderNode.view, aboveSubview: self.textPlaceholderNode.view)
             }
             let placeholderFrame = CGRect(origin: CGPoint(x: actualTextInputViewInternalInsets.left, y: textFieldInsets.top + actualTextInputViewInternalInsets.top + textInputViewRealInsets.top + UIScreenPixel + textFieldTopContentOffset), size: CGSize(width: width - leftInset - rightInset - textFieldInsets.left - textFieldInsets.right - actualTextInputViewInternalInsets.left - actualTextInputViewInternalInsets.right - accessoryButtonsWidth, height: 30.0))
             slowmodePlaceholderNode.updateState(slowmodeState)
@@ -3018,7 +3076,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
             button.updateLayout(item: item, size: buttonSize)
             let buttonFrame = CGRect(origin: CGPoint(x: nextButtonTopRight.x - buttonSize.width, y: nextButtonTopRight.y + floor((minimalInputHeight - buttonSize.height) / 2.0)), size: buttonSize)
             if button.superview == nil {
-                self.textInputContainerBackgroundView.contentView.addSubview(button)
+                self.liquidChrome.messageContainer.view.addSubview(button)
                 button.frame = buttonFrame.offsetBy(dx: -additionalOffset, dy: 0.0)
                 transition.updateFrame(layer: button.layer, frame: buttonFrame)
                 if animatedTransition {
@@ -3263,8 +3321,8 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
         }
         
         let searchLayoutClearButtonSize = CGSize(width: 46.0, height: 40.0)
-        self.mediaActionButtons.micButton.isHidden = additionalSideInsets.right > 0.0
-        self.mediaActionButtons.micButtonTintMaskView.isHidden = self.mediaActionButtons.micButton.isHidden
+        self.mediaActionButtons.micButton.isHidden = true
+        self.mediaActionButtons.micButtonTintMaskView.isHidden = true
 
         let clearButtonFrame = CGRect(origin: CGPoint(x: textInputContainerBackgroundFrame.width - searchLayoutClearButtonSize.width, y: textInputFrame.maxY - 40.0 + floor((40.0 - searchLayoutClearButtonSize.height) * 0.5)), size: searchLayoutClearButtonSize)
         transition.updateFrame(layer: self.searchLayoutClearButton.layer, frame: clearButtonFrame)
@@ -3373,6 +3431,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
         }
         
         self.mediaActionButtons.micButton.fadeDisabled = mediaInputDisabled
+        self.liquidChrome.mediaRecordingButton.fadeDisabled = mediaInputDisabled
         
         var viewOnceIsVisible = false
         var recordMoreIsVisible = false
@@ -3427,11 +3486,12 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
         let contextPanelMaskInset: CGFloat = 32.0
         let contextPanelBottomInset = floor(minimalInputHeight * 0.5)
         let contextPanelFrame = CGRect(origin: CGPoint(x: textInputContainerBackgroundFrame.minX, y: contentHeight - maxOverlayHeight), size: CGSize(width: textInputContainerBackgroundFrame.width, height: max(0.0, maxOverlayHeight - contentHeight + contextPanelBottomInset)))
+        let liquidContextPanelHostFrame = contextPanelNode != nil ? contextPanelFrame : .zero
         
         if contextPanelNode !== previousContextPanel?.panel, let previousContextPanel {
             let panelContainer = previousContextPanel.container
             
-            transition.updateFrame(view: previousContextPanel.container, frame: contextPanelFrame)
+            transition.updateFrame(view: previousContextPanel.container, frame: CGRect(origin: .zero, size: contextPanelFrame.size))
             transition.updateFrame(view: previousContextPanel.panel.view, frame: CGRect(origin: CGPoint(), size: contextPanelFrame.size))
             transition.updateFrame(view: previousContextPanel.mask, frame: CGRect(origin: CGPoint(), size: contextPanelFrame.size).insetBy(dx: -contextPanelMaskInset, dy: -contextPanelMaskInset))
             
@@ -3455,26 +3515,26 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
             }
         }
         
-        if let contextPanel = self.contextPanel {
-            let previousContextPanelFrame = CGRect(origin: CGPoint(x: previousTextInputContainerBackgroundFrame.minX, y: contentHeight - maxOverlayHeight), size: CGSize(width: previousTextInputContainerBackgroundFrame.width, height: max(0.0, maxOverlayHeight - contentHeight + contextPanelBottomInset)))
-            
-            if contextPanel.container.superview == nil {
-                self.view.insertSubview(contextPanel.container, at: 0)
-                contextPanel.container.addSubview(contextPanel.panel.view)
-                contextPanel.container.mask = contextPanel.mask
-                let maskSize = floor(minimalInputHeight)
-                contextPanel.mask.image = generateImage(CGSize(width: maskSize + contextPanelMaskInset * 2.0, height: maskSize + contextPanelMaskInset * 2.0), rotatedContext: { size, context in
+            if let contextPanel = self.contextPanel {
+                let previousContextPanelFrame = CGRect(origin: CGPoint(x: previousTextInputContainerBackgroundFrame.minX, y: contentHeight - maxOverlayHeight), size: CGSize(width: previousTextInputContainerBackgroundFrame.width, height: max(0.0, maxOverlayHeight - contentHeight + contextPanelBottomInset)))
+                
+                if contextPanel.container.superview == nil {
+                    self.liquidChrome.contextPanelHostView.addSubview(contextPanel.container)
+                    contextPanel.container.addSubview(contextPanel.panel.view)
+                    contextPanel.container.mask = contextPanel.mask
+                    let maskSize = floor(minimalInputHeight)
+                    contextPanel.mask.image = generateImage(CGSize(width: maskSize + contextPanelMaskInset * 2.0, height: maskSize + contextPanelMaskInset * 2.0), rotatedContext: { size, context in
                     context.setFillColor(UIColor.black.cgColor)
                     context.fill(CGRect(origin: CGPoint(), size: size))
                     context.setBlendMode(.copy)
                     context.setFillColor(UIColor.clear.cgColor)
                     context.fillEllipse(in: CGRect(origin: CGPoint(x: contextPanelMaskInset, y: contextPanelMaskInset + maskSize * 0.5), size: CGSize(width: maskSize, height: maskSize)))
                     context.fill(CGRect(origin: CGPoint(x: 0.0, y: contextPanelMaskInset + maskSize), size: CGSize(width: maskSize + contextPanelMaskInset * 2.0, height: maskSize + contextPanelMaskInset)))
-                })?.stretchableImage(withLeftCapWidth: Int(contextPanelMaskInset) + Int(maskSize) / 2, topCapHeight: Int(contextPanelMaskInset) + 1)
-                
-                contextPanel.container.frame = previousContextPanelFrame
-                contextPanel.panel.view.frame = CGRect(origin: CGPoint(), size: previousContextPanelFrame.size)
-                contextPanel.mask.frame = CGRect(origin: CGPoint(), size: previousContextPanelFrame.size).insetBy(dx: -contextPanelMaskInset, dy: -contextPanelMaskInset)
+                    })?.stretchableImage(withLeftCapWidth: Int(contextPanelMaskInset) + Int(maskSize) / 2, topCapHeight: Int(contextPanelMaskInset) + 1)
+                    
+                    contextPanel.container.frame = CGRect(origin: .zero, size: previousContextPanelFrame.size)
+                    contextPanel.panel.view.frame = CGRect(origin: CGPoint(), size: previousContextPanelFrame.size)
+                    contextPanel.mask.frame = CGRect(origin: CGPoint(), size: previousContextPanelFrame.size).insetBy(dx: -contextPanelMaskInset, dy: -contextPanelMaskInset)
                 
                 contextPanel.panel.updateLayout(
                     size: previousContextPanelFrame.size,
@@ -3486,7 +3546,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
                 )
             }
             
-            transition.updateFrame(view: contextPanel.container, frame: contextPanelFrame)
+            transition.updateFrame(view: contextPanel.container, frame: CGRect(origin: .zero, size: contextPanelFrame.size))
             transition.updateFrame(view: contextPanel.panel.view, frame: CGRect(origin: CGPoint(), size: contextPanelFrame.size))
             transition.updateFrame(view: contextPanel.mask, frame: CGRect(origin: CGPoint(), size: contextPanelFrame.size).insetBy(dx: -contextPanelMaskInset, dy: -contextPanelMaskInset))
             
@@ -3501,6 +3561,60 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
         }
         
         let containerFrame = CGRect(origin: CGPoint(), size: CGSize(width: width, height: contentHeight + 64.0))
+        transition.updateFrame(view: self.liquidChrome.view, frame: containerFrame)
+
+        let attachmentVisualState: ChatTextInputAttachmentButtonVisualState = {
+            if let customLeftAction = self.customLeftAction {
+                switch customLeftAction {
+                case let .toggleExpanded(_, isExpanded, hasUnseen):
+                    return .comments(isExpanded: isExpanded, hasUnseen: hasUnseen)
+                case .empty, .settings:
+                    break
+                }
+            }
+            if interfaceState.interfaceState.mediaDraftState != nil {
+                return .delete
+            } else if isEditingMedia {
+                return .editAttachment
+            } else {
+                return .attachment
+            }
+        }()
+
+        let chromeLayout = ChatTextInputPanelChromeLayout(
+            bounds: containerFrame,
+            messageContainerFrame: textInputContainerBackgroundFrame,
+            textInputHostFrame: liquidTextInputHostFrame,
+            accessoryPanelHostFrame: textInputContainerBackgroundFrame,
+            contextPanelHostFrame: liquidContextPanelHostFrame,
+            attachmentButtonFrame: attachmentButtonFrame,
+            mediaRecordingButtonFrame: mediaActionButtonsFrame
+        )
+
+        let messageContainerPresentation = ChatTextInputMessageContainerPresentation(
+            isDark: interfaceState.theme.overallDarkAppearance,
+            backgroundTintColor: .init(kind: .panel, color: interfaceState.theme.chat.inputPanel.inputBackgroundColor.withMultipliedAlpha(0.7)),
+            isInteractive: true
+        )
+        let attachmentPresentation = ChatTextInputAttachmentButtonPresentation(
+            alpha: attachmentButtonAlpha,
+            isEnabled: self.attachmentButton.isEnabled,
+            accessibilityLabel: self.attachmentButton.accessibilityLabel ?? interfaceState.strings.VoiceOver_AttachMedia,
+            accessibilityTraits: self.attachmentButton.accessibilityTraits,
+            isDisabledOverlayVisible: !self.attachmentButtonDisabledNode.isHidden,
+            backgroundTintColor: .init(kind: .panel, color: interfaceState.theme.chat.inputPanel.inputBackgroundColor.withMultipliedAlpha(0.7)),
+            isDark: interfaceState.theme.overallDarkAppearance,
+            iconTintColor: interfaceState.theme.chat.inputPanel.panelControlColor,
+            state: attachmentVisualState
+        )
+        let chromePresentation = ChatTextInputPanelChromePresentation(
+            theme: interfaceState.theme,
+            strings: interfaceState.strings,
+            messageContainer: messageContainerPresentation,
+            attachment: attachmentPresentation
+        )
+        self.liquidChrome.update(presentation: chromePresentation, layout: chromeLayout, transition: transition)
+
         transition.updateFrame(view: self.glassBackgroundContainer, frame: containerFrame)
         self.glassBackgroundContainer.update(size: containerFrame.size, isDark: interfaceState.theme.overallDarkAppearance, transition: ComponentTransition(transition))
         
@@ -4448,11 +4562,15 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
                 alphaTransition.updateAlpha(layer: self.mediaActionButtons.micButtonBackgroundView.layer, alpha: 0.0)
                 alphaTransition.updateAlpha(layer: self.mediaActionButtons.micButtonTintMaskView.layer, alpha: 0.0)
             }
+            alphaTransition.updateAlpha(layer: self.liquidChrome.mediaRecordingButton.view.layer, alpha: 0.0)
         } else {
             let micAlpha: CGFloat = self.mediaActionButtons.micButton.fadeDisabled ? 0.5 : 1.0
             if !self.mediaActionButtons.micButton.alpha.isEqual(to: micAlpha) {
                 alphaTransition.updateAlpha(layer: self.mediaActionButtons.micButton.layer, alpha: micAlpha)
                 alphaTransition.updateAlpha(layer: self.mediaActionButtons.micButtonTintMaskView.layer, alpha: micAlpha)
+            }
+            if !self.liquidChrome.mediaRecordingButton.view.alpha.isEqual(to: micAlpha) {
+                alphaTransition.updateAlpha(layer: self.liquidChrome.mediaRecordingButton.view.layer, alpha: micAlpha)
             }
             
             if hideMicButtonBackground {
@@ -4473,6 +4591,13 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
             if !self.mediaActionButtons.expandMediaInputButton.alpha.isZero {
                 alphaTransition.updateAlpha(layer: self.mediaActionButtons.expandMediaInputButton.layer, alpha: 0.0)
             }
+        }
+
+        // `mediaActionButtons` sits above the liquid chrome and can swallow touches even when its own controls
+        // are hidden. Keep it interactive only while the expand button is visible.
+        let shouldEnableLegacyMediaButtons = mediaInputIsActive && !hideExpandMediaInput
+        if self.mediaActionButtons.isUserInteractionEnabled != shouldEnableLegacyMediaButtons {
+            self.mediaActionButtons.isUserInteractionEnabled = shouldEnableLegacyMediaButtons
         }
         
         self.sendActionButtons.updateAccessibility()
@@ -5357,7 +5482,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
     }
     
     public func getAttachmentButton() -> UIView {
-        return self.attachmentButton
+        return self.liquidChrome.attachmentButton.view
     }
     
     public func frameForAttachmentButton() -> CGRect? {

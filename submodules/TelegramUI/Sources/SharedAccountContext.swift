@@ -1742,7 +1742,17 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                 
                 if let chatListController = chatListController {
                     if let index = tabsController.controllers.firstIndex(where: { $0 is ChatListController }) {
-                        var controllers = tabsController.controllers
+                        guard let chatListController = chatListController as? (ViewController & TabBarBackgroundChangeProviding) else {
+                            preconditionFailure("TabBarController requires controllers conforming to TabBarBackgroundChangeProviding")
+                        }
+                        var controllers: [ViewController & TabBarBackgroundChangeProviding] = []
+                        controllers.reserveCapacity(tabsController.controllers.count)
+                        for controller in tabsController.controllers {
+                            guard let controller = controller as? (ViewController & TabBarBackgroundChangeProviding) else {
+                                preconditionFailure("TabBarController requires controllers conforming to TabBarBackgroundChangeProviding")
+                            }
+                            controllers.append(controller)
+                        }
                         controllers[index] = chatListController
                         tabsController.setControllers(controllers, selectedIndex: index)
                     }

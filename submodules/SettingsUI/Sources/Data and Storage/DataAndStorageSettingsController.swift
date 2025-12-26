@@ -407,7 +407,7 @@ private enum DataAndStorageEntry: ItemListNodeEntry {
             case let .autoSaveInfo(text):
                 return ItemListTextItem(presentationData: presentationData, text: .markdown(text), sectionId: self.section)
             case let .useLessVoiceData(_, text, value):
-                return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: text, value: value, sectionId: self.section, style: .blocks, updated: { value in
+                return LiquidGlassSwitchItem(presentationData: presentationData, systemStyle: .glass, title: text, value: value, sectionId: self.section, style: .blocks, updated: { value in
                     arguments.toggleVoiceUseLessData(value)
                 }, tag: nil)
             case let .useLessVoiceDataInfo(_, text):

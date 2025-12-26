@@ -69,6 +69,8 @@ final class ContactsControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
     var openInvite: (() -> Void)?
     var openQrScan: (() -> Void)?
     var openStories: ((EnginePeer, ASDisplayNode) -> Void)?
+
+    var tabBarBackgroundInvalidated: (() -> Void)?
     
     private var presentationData: PresentationData
     private var presentationDataDisposable: Disposable?
@@ -220,6 +222,8 @@ final class ContactsControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
                 }
             }*/
         }
+
+        self.installTabBarBackgroundChangeHooks(listView: self.contactListNode.listNode)
         
         self.contactListNode.contentScrollingEnded = { [weak self] listView in
             guard let self else {
@@ -279,6 +283,48 @@ final class ContactsControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
     
     private func contentOffsetChanged(offset: ListViewVisibleContentOffset) {
         self.updateNavigationScrolling(transition: .immediate)
+    }
+
+    private func installTabBarBackgroundChangeHooks(listView: ListView) {
+        let previousVisibleContentOffsetChanged = listView.visibleContentOffsetChanged
+        listView.visibleContentOffsetChanged = { [weak self, weak listView] offset in
+            previousVisibleContentOffsetChanged(offset)
+            guard let self, let listView else {
+                return
+            }
+            self.notifyTabBarBackgroundChanged(listView: listView)
+        }
+
+        let previousOnContentsUpdated = listView.onContentsUpdated
+        listView.onContentsUpdated = { [weak self, weak listView] transition in
+            previousOnContentsUpdated?(transition)
+            guard let self, let listView else {
+                return
+            }
+            self.notifyTabBarBackgroundChanged(listView: listView)
+        }
+
+        let previousBeganInteractiveDragging = listView.beganInteractiveDragging
+        listView.beganInteractiveDragging = { [weak self, weak listView] point in
+            previousBeganInteractiveDragging(point)
+            guard let self, let listView else {
+                return
+            }
+            self.notifyTabBarBackgroundChanged(listView: listView)
+        }
+
+        let previousDidEndScrolling = listView.didEndScrolling
+        listView.didEndScrolling = { [weak self, weak listView] animated in
+            previousDidEndScrolling?(animated)
+            guard let self, let listView else {
+                return
+            }
+            self.notifyTabBarBackgroundChanged(listView: listView)
+        }
+    }
+    
+    private func notifyTabBarBackgroundChanged(listView: ListView) {
+        self.tabBarBackgroundInvalidated?()
     }
     
     private func contentScrollingEnded(listView: ListView) -> Bool {
@@ -505,6 +551,10 @@ final class ContactsControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
                 requestDeactivateSearch()
             }
         })
+
+        if let contentNode = self.searchDisplayController?.contentNode as? ContactsSearchContainerNode {
+            self.installTabBarBackgroundChangeHooks(listView: contentNode.listNode)
+        }
         
         self.searchDisplayController?.containerLayoutUpdated(containerLayout, navigationBarHeight: navigationBarHeight, transition: .immediate)
         self.searchDisplayController?.activate(insertSubnode: { [weak self] subnode, isSearchBar in

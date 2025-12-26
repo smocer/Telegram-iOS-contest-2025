@@ -157,6 +157,7 @@ public final class ChatListContainerNode: ASDisplayNode, ASGestureRecognizerDele
             previousItemNode.listNode.groupSelected = nil
             previousItemNode.listNode.updatePeerGrouping = nil
             previousItemNode.listNode.contentOffsetChanged = nil
+            previousItemNode.listNode.onContentsUpdated = nil
             previousItemNode.listNode.contentScrollingEnded = nil
             previousItemNode.listNode.didBeginInteractiveDragging = nil
             previousItemNode.listNode.endedInteractiveDragging = { _ in }
@@ -267,6 +268,15 @@ public final class ChatListContainerNode: ASDisplayNode, ASGestureRecognizerDele
                     self.tempTopInset = 0.0
                 }
             }
+        }
+
+        let previousOnContentsUpdated = itemNode.listNode.onContentsUpdated
+        itemNode.listNode.onContentsUpdated = { [weak self] transition in
+            previousOnContentsUpdated?(transition)
+            guard let self else {
+                return
+            }
+            self.contentsUpdated?(self.currentItemNode)
         }
         itemNode.listNode.didBeginInteractiveDragging = { [weak self] listView in
             guard let self else {
@@ -419,6 +429,7 @@ public final class ChatListContainerNode: ASDisplayNode, ASGestureRecognizerDele
     var updatePeerGrouping: ((EnginePeer.Id, Bool) -> Void)?
     var contentOffset: ListViewVisibleContentOffset?
     public var contentOffsetChanged: ((ListViewVisibleContentOffset, ListView) -> Void)?
+    public var contentsUpdated: ((ListView) -> Void)?
     public var contentScrollingEnded: ((ListView) -> Bool)?
     var didBeginInteractiveDragging: ((ListView) -> Void)?
     var endedInteractiveDragging: ((ListView) -> Void)?
@@ -1112,6 +1123,8 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
     private var containerLayout: (layout: ContainerViewLayout, navigationBarHeight: CGFloat, visualNavigationHeight: CGFloat, cleanNavigationBarHeight: CGFloat, storiesInset: CGFloat)?
     
     var contentScrollingEnded: ((ListView) -> Bool)?
+
+    var tabBarBackgroundInvalidated: (() -> Void)?
     
     var requestDeactivateSearch: (() -> Void)?
     var requestOpenPeerFromSearch: ((EnginePeer, Int64?, Bool) -> Void)?
@@ -1162,6 +1175,9 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
         
         self.mainContainerNode.contentOffsetChanged = { [weak self] offset, listView in
             self?.contentOffsetChanged(offset: offset, listView: listView, isPrimary: true)
+        }
+        self.mainContainerNode.contentsUpdated = { [weak self] listView in
+            self?.notifyTabBarBackgroundChanged(listView: listView)
         }
         self.mainContainerNode.contentScrollingEnded = { [weak self] listView in
             return self?.contentScrollingEnded(listView: listView, isPrimary: true) ?? false
@@ -1775,11 +1791,16 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
             navigationBarComponentView.applyScroll(offset: 0.0, allowAvatarsExpansion: false, transition: ComponentTransition(animation: .curve(duration: 0.3, curve: .slide)))
         }
     }
+
+    private func notifyTabBarBackgroundChanged(listView: ListView) {
+        self.tabBarBackgroundInvalidated?()
+    }
     
     private func contentOffsetChanged(offset: ListViewVisibleContentOffset, listView: ListView, isPrimary: Bool) {
         guard let containerLayout = self.containerLayout else {
             return
         }
+        self.notifyTabBarBackgroundChanged(listView: listView)
         self.updateNavigationScrolling(navigationHeight: containerLayout.navigationBarHeight, transition: self.tempNavigationScrollingTransition ?? .immediate)
         
         if listView.isDragging {
@@ -1904,6 +1925,7 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
     }
     
     private func contentScrollingEnded(listView: ListView, isPrimary: Bool) -> Bool {
+        self.notifyTabBarBackgroundChanged(listView: listView)
         if !isPrimary || self.inlineStackContainerNode == nil {
         } else {
             return false
@@ -1970,6 +1992,9 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
                 
                 inlineStackContainerNode.contentOffsetChanged = { [weak self] offset, listView in
                     self?.contentOffsetChanged(offset: offset, listView: listView, isPrimary: false)
+                }
+                inlineStackContainerNode.contentsUpdated = { [weak self] listView in
+                    self?.notifyTabBarBackgroundChanged(listView: listView)
                 }
                 inlineStackContainerNode.didBeginInteractiveDragging = { [weak self] listView in
                     self?.didBeginInteractiveDragging(listView: listView, isPrimary: false)

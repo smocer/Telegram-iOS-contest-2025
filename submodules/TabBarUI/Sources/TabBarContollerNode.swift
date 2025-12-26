@@ -3,9 +3,7 @@ import UIKit
 import AsyncDisplayKit
 import Display
 import TelegramPresentationData
-import ComponentFlow
-import ComponentDisplayAdapters
-import TabBarComponent
+import LiquidGlassUI
 
 private extension ToolbarTheme {
     convenience init(theme: PresentationTheme) {
@@ -13,7 +11,26 @@ private extension ToolbarTheme {
     }
 }
 
+extension LiquidGlassTabBar: TabBarBackgroundCaptureInvalidating {
+}
+
 final class TabBarControllerNode: ASDisplayNode {
+    private final class BadgeLabel: UILabel {
+        var contentInsets = UIEdgeInsets(top: 1.0, left: 5.0, bottom: 1.0, right: 5.0)
+
+        override func drawText(in rect: CGRect) {
+            super.drawText(in: rect.inset(by: self.contentInsets))
+        }
+
+        override var intrinsicContentSize: CGSize {
+            let size = super.intrinsicContentSize
+            return CGSize(
+                width: size.width + self.contentInsets.left + self.contentInsets.right,
+                height: size.height + self.contentInsets.top + self.contentInsets.bottom
+            )
+        }
+    }
+
     private struct Params: Equatable {
         let layout: ContainerViewLayout
         let toolbar: Toolbar?
@@ -54,7 +71,8 @@ final class TabBarControllerNode: ASDisplayNode {
     private let itemSelected: (Int, Bool, [ASDisplayNode]) -> Void
     private let contextAction: (Int, ContextExtractedContentContainingView, ContextGesture) -> Void
     
-    private let tabBarView = ComponentView<Empty>()
+    private let liquidTabBar: LiquidGlassTabBar
+    private let backgroundUpdateDriver: TabBarBackgroundUpdateDriver
     
     private let disabledOverlayNode: ASDisplayNode
     private var toolbarNode: ToolbarNode?
@@ -70,23 +88,28 @@ final class TabBarControllerNode: ASDisplayNode {
     private var isUpdateRequested: Bool = false
     private var isChangingSelectedIndex: Bool = false
     
-    func setCurrentControllerNode(_ node: ASDisplayNode?) -> () -> Void {
+    func setCurrentControllerNode(_ node: ASDisplayNode?, backgroundChangeSource: TabBarBackgroundChangeSource?) -> () -> Void {
         guard node !== self.currentControllerNode else {
             return {}
         }
         
         let previousNode = self.currentControllerNode
         self.currentControllerNode = node
-        if let currentControllerNode = self.currentControllerNode {
+            if let currentControllerNode = self.currentControllerNode {
             if let previousNode {
                 self.insertSubnode(currentControllerNode, aboveSubnode: previousNode)
             } else {
                 self.insertSubnode(currentControllerNode, at: 0)
             }
-            if let tabBarView = self.tabBarView.view {
-                self.view.bringSubviewToFront(tabBarView)
-            }
+            self.view.bringSubviewToFront(self.liquidTabBar)
+            self.view.bringSubviewToFront(self.disabledOverlayNode.view)
         }
+
+        self.updateTabBarCaptureConfiguration()
+        self.backgroundUpdateDriver.setSource(backgroundChangeSource)
+        self.backgroundUpdateDriver.warmup(frames: 2)
+
+        self.requestUpdate()
         
         return { [weak self, weak previousNode] in
             if previousNode !== self?.currentControllerNode {
@@ -99,9 +122,12 @@ final class TabBarControllerNode: ASDisplayNode {
         self.theme = theme
         self.itemSelected = itemSelected
         self.contextAction = contextAction
+        self.liquidTabBar = LiquidGlassTabBar(metalContext: LiquidGlassSharedContext.metalContext)
+        self.backgroundUpdateDriver = TabBarBackgroundUpdateDriver(invalidator: self.liquidTabBar)
         self.disabledOverlayNode = ASDisplayNode()
         self.disabledOverlayNode.backgroundColor = theme.rootController.tabBar.backgroundColor.withAlphaComponent(0.5)
         self.disabledOverlayNode.alpha = 0.0
+        self.disabledOverlayNode.isUserInteractionEnabled = false
         self.toolbarActionSelected = toolbarActionSelected
         self.disabledPressed = disabledPressed
         
@@ -124,9 +150,19 @@ final class TabBarControllerNode: ASDisplayNode {
         }
         
         self.backgroundColor = theme.list.plainBackgroundColor
-        
-        //self.addSubnode(self.tabBarNode)
-        //self.addSubnode(self.disabledOverlayNode)
+
+        let tabBarHeight: CGFloat = 100.0
+        let inset: CGFloat = 16.0
+        self.liquidTabBar.cornerRadius = (tabBarHeight - inset * 2.0) / 2.0
+        self.liquidTabBar.spacing = 6.0
+        self.liquidTabBar.contentInsets = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
+        self.liquidTabBar.restingKnobSize = CGSize(width: 75.0, height: 50.0)
+        self.liquidTabBar.liquidKnobSize = CGSize(width: 100.0, height: 75.0)
+        self.liquidTabBar.onTabSelected = { [weak self] index in
+            self?.itemSelected(index, false, [])
+        }
+
+        self.addSubnode(self.disabledOverlayNode)
     }
     
     override func didLoad() {
@@ -151,6 +187,7 @@ final class TabBarControllerNode: ASDisplayNode {
     }
     
     func updateIsTabBarEnabled(_ value: Bool, transition: ContainedViewLayoutTransition) {
+        self.disabledOverlayNode.isUserInteractionEnabled = !value
         transition.updateAlpha(node: self.disabledOverlayNode, alpha: value ? 0.0 : 1.0)
     }
     
@@ -177,6 +214,74 @@ final class TabBarControllerNode: ASDisplayNode {
         self.isUpdateRequested = true
         self.view.setNeedsLayout()
     }
+
+    private func updateTabBarCaptureConfiguration() {
+        let captureView = self.currentControllerNode?.view
+        if self.liquidTabBar.captureView !== captureView {
+            self.liquidTabBar.captureView = captureView
+        }
+        self.liquidTabBar.roiProvider = { [weak self] in
+            guard let self, let captureView = self.liquidTabBar.captureView else {
+                return .zero
+            }
+            return self.liquidTabBar.convert(self.liquidTabBar.bounds, to: captureView)
+        }
+    }
+
+    private func makeLiquidTabItemView(item: UITabBarItem, isSelected: Bool) -> UIView {
+        let container = UIView()
+
+        let imageView = UIImageView()
+        imageView.contentMode = .scaleAspectFit
+        imageView.tintColor = isSelected ? self.theme.rootController.tabBar.selectedIconColor : self.theme.rootController.tabBar.iconColor
+
+        let label = UILabel()
+        label.text = item.title
+        label.textColor = isSelected ? self.theme.rootController.tabBar.selectedTextColor : self.theme.rootController.tabBar.textColor
+        label.textAlignment = .center
+        label.font = .preferredFont(forTextStyle: .caption1)
+        label.adjustsFontSizeToFitWidth = true
+
+        let stack = UIStackView(arrangedSubviews: [imageView, label])
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 4.0
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(stack)
+
+        let image = (isSelected ? (item.selectedImage ?? item.image) : (item.image ?? item.selectedImage))?.withRenderingMode(.alwaysTemplate)
+        imageView.image = image
+
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            imageView.widthAnchor.constraint(equalToConstant: 22.0),
+            imageView.heightAnchor.constraint(equalToConstant: 22.0)
+        ])
+
+        if let badgeValue = item.badgeValue, !badgeValue.isEmpty {
+            let badgeLabel = BadgeLabel()
+            badgeLabel.translatesAutoresizingMaskIntoConstraints = false
+            badgeLabel.isUserInteractionEnabled = false
+            badgeLabel.text = badgeValue
+            badgeLabel.font = .systemFont(ofSize: 12.0, weight: .semibold)
+            badgeLabel.textAlignment = .center
+            badgeLabel.textColor = self.theme.rootController.tabBar.badgeTextColor
+            badgeLabel.backgroundColor = self.theme.rootController.tabBar.badgeBackgroundColor
+            badgeLabel.layer.masksToBounds = true
+            badgeLabel.layer.cornerRadius = 9.0
+            container.addSubview(badgeLabel)
+
+            NSLayoutConstraint.activate([
+                badgeLabel.centerXAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 0.0),
+                badgeLabel.centerYAnchor.constraint(equalTo: imageView.topAnchor, constant: 0.0),
+                badgeLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 18.0),
+                badgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 18.0)
+            ])
+        }
+
+        return container
+    }
     
     private func updateImpl(params: Params, transition: ContainedViewLayoutTransition) -> CGFloat {
         var options: ContainerViewLayoutInsetOptions = []
@@ -191,60 +296,45 @@ final class TabBarControllerNode: ASDisplayNode {
             bottomInset = max(bottomInset, 8.0)
         }
         let sideInset: CGFloat = 20.0
-        
-        var selectedId: AnyHashable?
-        if self.selectedIndex < self.tabBarItems.count {
-            selectedId = ObjectIdentifier(self.tabBarItems[self.selectedIndex].item)
+        let tabBarContentInset: CGFloat = 16.0
+
+        let tabBarHeight: CGFloat = 100.0
+
+        if self.liquidTabBar.superview == nil {
+            self.view.addSubview(self.liquidTabBar)
         }
-        var tabBarTransition = ComponentTransition(transition)
-        if self.isChangingSelectedIndex {
-            self.isChangingSelectedIndex = false
-            tabBarTransition = .spring(duration: 0.4)
+        self.view.bringSubviewToFront(self.liquidTabBar)
+        self.view.bringSubviewToFront(self.disabledOverlayNode.view)
+
+        let tabViews: [UIView] = self.tabBarItems.enumerated().map { index, item in
+            self.makeLiquidTabItemView(item: item.item, isSelected: index == self.selectedIndex)
         }
-        if self.tabBarView.view == nil {
-            tabBarTransition = .immediate
+        self.liquidTabBar.tabViews = tabViews
+        if !tabViews.isEmpty {
+        self.liquidTabBar.selectedIndex = max(0, min(self.selectedIndex, tabViews.count - 1))
         }
-        let tabBarSize = self.tabBarView.update(
-            transition: tabBarTransition,
-            component: AnyComponent(TabBarComponent(
-                theme: self.theme,
-                items: self.tabBarItems.map { item in
-                    let itemId = AnyHashable(ObjectIdentifier(item.item))
-                    return TabBarComponent.Item(
-                        item: item.item,
-                        action: { [weak self] isLongTap in
-                            guard let self else {
-                                return
-                            }
-                            if let index = self.tabBarItems.firstIndex(where: { AnyHashable(ObjectIdentifier($0.item)) == itemId }) {
-                                self.itemSelected(index, isLongTap, [])
-                            }
-                        },
-                        contextAction: { [weak self] gesture, sourceView in
-                            guard let self else {
-                                return
-                            }
-                            if let index = self.tabBarItems.firstIndex(where: { AnyHashable(ObjectIdentifier($0.item)) == itemId }) {
-                                self.contextAction(index, sourceView, gesture)
-                            }
-                        }
-                    )
-                },
-                selectedId: selectedId,
-                isTablet: params.layout.metrics.isTablet
-            )),
-            environment: {},
-            containerSize: CGSize(width: params.layout.size.width - sideInset * 2.0, height: 100.0)
+
+        self.updateTabBarCaptureConfiguration()
+        self.backgroundUpdateDriver.setIsVisible(params.toolbar == nil && !params.isTabBarHidden)
+
+        // The Metal view must span the full screen width so the knob can move beyond the visible pill
+        // without being clipped. We preserve the previous visual margins by moving them into the
+        // tab bar's internal content insets.
+        self.liquidTabBar.contentInsets = UIEdgeInsets(
+            top: tabBarContentInset,
+            left: tabBarContentInset + sideInset,
+            bottom: tabBarContentInset,
+            right: tabBarContentInset + sideInset
         )
-        let tabBarFrame = CGRect(origin: CGPoint(x: floor((params.layout.size.width - tabBarSize.width) * 0.5), y: params.layout.size.height - (self.tabBarHidden ? 0.0 : (tabBarSize.height + bottomInset))), size: tabBarSize)
         
-        if let tabBarComponentView = self.tabBarView.view {
-            if tabBarComponentView.superview == nil {
-                self.view.addSubview(tabBarComponentView)
-            }
-            transition.updateFrame(view: tabBarComponentView, frame: tabBarFrame)
-            transition.updateAlpha(layer: tabBarComponentView.layer, alpha: params.toolbar == nil ? 1.0 : 0.0)
-        }
+        let tabBarFrame = CGRect(
+            x: 0.0,
+            y: params.layout.size.height - (self.tabBarHidden ? 0.0 : (tabBarHeight + bottomInset)),
+            width: params.layout.size.width,
+            height: tabBarHeight
+        )
+        transition.updateFrame(view: self.liquidTabBar, frame: tabBarFrame)
+        transition.updateAlpha(layer: self.liquidTabBar.layer, alpha: params.toolbar == nil ? 1.0 : 0.0)
         
         transition.updateFrame(node: self.disabledOverlayNode, frame: tabBarFrame)
         
@@ -282,20 +372,14 @@ final class TabBarControllerNode: ASDisplayNode {
     }
     
     func frameForControllerTab(at index: Int) -> CGRect? {
-        guard let tabBarView = self.tabBarView.view as? TabBarComponent.View else {
+        guard let tabFrame = self.liquidTabBar.frameForTab(at: index) else {
             return nil
         }
-        guard let itemFrame = tabBarView.frameForItem(at: index) else {
-            return nil
-        }
-        return self.view.convert(itemFrame, from: tabBarView)
+        return self.liquidTabBar.convert(tabFrame, to: self.view)
     }
     
     func isPointInsideContentArea(point: CGPoint) -> Bool {
-        guard let tabBarView = self.tabBarView.view else {
-            return false
-        }
-        if point.y < tabBarView.frame.minY {
+        if point.y < self.liquidTabBar.frame.minY {
             return true
         }
         return false

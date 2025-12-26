@@ -390,6 +390,10 @@ public class GlassBackgroundView: UIView {
     }
     
     override public func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard !self.isHidden, self.alpha > 0.01, self.isUserInteractionEnabled, self.point(inside: point, with: event) else {
+            return nil
+        }
+
         if let nativeView = self.nativeView {
             if let result = nativeView.hitTest(self.convert(point, to: nativeView), with: event) {
                 return result
@@ -595,10 +599,13 @@ public final class GlassBackgroundContainerView: UIView {
     }
     
     override public func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard let result = self.contentView.hitTest(point, with: event) else {
+        if let nativeView = self.nativeView {
+            return nativeView.hitTest(self.convert(point, to: nativeView), with: event)
+        } else if let legacyView = self.legacyView {
+            return legacyView.hitTest(self.convert(point, to: legacyView), with: event)
+        } else {
             return nil
         }
-        return result
     }
     
     public func update(size: CGSize, isDark: Bool, transition: ComponentTransition) {
@@ -612,7 +619,8 @@ public final class GlassBackgroundContainerView: UIView {
                 nativeParamsView.lumaMin = 0.6
                 nativeParamsView.lumaMax = 0.61
             }
-            
+
+            transition.setFrame(view: nativeParamsView, frame: CGRect(origin: CGPoint(), size: size))
             transition.setFrame(view: nativeView, frame: CGRect(origin: CGPoint(), size: size))
         } else if let legacyView = self.legacyView {
             transition.setFrame(view: legacyView, frame: CGRect(origin: CGPoint(), size: size))

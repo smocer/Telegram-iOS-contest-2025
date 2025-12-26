@@ -101,7 +101,7 @@ private final class SortHeaderButton: HighlightableButtonNode {
     }
 }
 
-public class ContactsController: ViewController {
+public class ContactsController: ViewController, TabBarBackgroundChangeProviding {
     private let context: AccountContext
     
     private var contactsNode: ContactsControllerNode {
@@ -125,6 +125,12 @@ public class ContactsController: ViewController {
     private let isInVoiceOver = ValuePromise<Bool>(false)
     
     public var switchToChatsController: (() -> Void)?
+
+    private let tabBarBackgroundChangeSourceImpl = TabBarBackgroundChangeSourceImpl()
+
+    public var tabBarBackgroundChangeSource: TabBarBackgroundChangeSource {
+        return self.tabBarBackgroundChangeSourceImpl
+    }
     
     public override func updateNavigationCustomData(_ data: Any?, progress: CGFloat, transition: ContainedViewLayoutTransition) {
         if self.isNodeLoaded {
@@ -281,6 +287,10 @@ public class ContactsController: ViewController {
         |> map { _ -> Bool in true })
         
         self.contactsNode.navigationBar = self.navigationBar
+
+        self.contactsNode.tabBarBackgroundInvalidated = { [weak self] in
+            self?.tabBarBackgroundChangeSourceImpl.invalidate()
+        }
         
         let openPeer: (ContactListPeer, Bool) -> Void = { [weak self] peer, fromSearch in
             if let strongSelf = self {

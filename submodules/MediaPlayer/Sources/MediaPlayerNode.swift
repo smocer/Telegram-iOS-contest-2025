@@ -11,16 +11,27 @@ private final class MediaPlayerNodeLayerNullAction: NSObject, CAAction {
 }
 
 private final class MediaPlayerNodeLayer: AVSampleBufferDisplayLayer {
+    private let isCopy: Bool
+    
     override init() {
+        self.isCopy = false
         super.init()
     }
     
     required init?(coder: NSCoder) {
+        self.isCopy = false
         fatalError("init(coder:) has not been implemented")
     }
     
+    override init(layer: Any) {
+        self.isCopy = true
+        super.init(layer: layer)
+    }
+    
     deinit {
-        assert(Queue.mainQueue().isCurrent())
+        if !self.isCopy {
+            assert(Queue.mainQueue().isCurrent())
+        }
     }
     
     override func action(forKey event: String) -> CAAction? {

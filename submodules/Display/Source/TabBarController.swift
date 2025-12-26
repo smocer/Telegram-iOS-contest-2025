@@ -13,7 +13,7 @@ public protocol TabBarController: ViewController {
     var controllers: [ViewController] { get }
     var selectedIndex: Int { get set }
     
-    func setControllers(_ controllers: [ViewController], selectedIndex: Int?)
+    func setControllers(_ controllers: [ViewController & TabBarBackgroundChangeProviding], selectedIndex: Int?)
     
     func updateBackgroundAlpha(_ alpha: CGFloat, transition: ContainedViewLayoutTransition)
     

@@ -12,6 +12,7 @@ swift_library(
     deps = [
         "//submodules/Display",
         "//submodules/AsyncDisplayKit",
+        "//submodules/LiquidGlassUI",
         "//submodules/SSignalKit/SwiftSignalKit",
         "//submodules/Postbox",
         "//submodules/TelegramCore",
